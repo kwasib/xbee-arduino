@@ -52,6 +52,7 @@
 
 // the non-variable length of the frame data (not including frame id or api id or variable data size (e.g. payload, at command set value)
 #define ZB_TX_API_LENGTH 12
+#define ZB_EXP_COM_API_LENGTH 18 //This one has cluster id, profile id, src endpoint, and dest endpoint additional
 #define TX_16_API_LENGTH 3
 #define TX_64_API_LENGTH 9
 #define AT_COMMAND_API_LENGTH 2
@@ -221,6 +222,11 @@ public:
 	 * to populate response
 	 */
 	void getZBRxIoSampleResponse(XBeeResponse &response);
+	/**
+	 * Call with instance of ZBExpRxResponse class only if getApiId() == ZB_EXPLICIT_RX_RESPONSE
+	 * to populate response
+	 */
+	void getZBExpRxResponse(XBeeResponse &response);
 #endif
 #ifdef SERIES_1
 	/**
@@ -370,8 +376,8 @@ class ZBTxStatusResponse : public FrameIdResponse {
 		uint8_t getDeliveryStatus();
 		uint8_t getDiscoveryStatus();
 		bool isSuccess();
+		uint8_t getFrameId();
 };
-
 /**
  * Represents a Series 2 RX packet
  */
@@ -417,6 +423,21 @@ public:
 	uint8_t getDigitalMaskMsb();
 	uint8_t getDigitalMaskLsb();
 	uint8_t getAnalogMask();
+};
+/**
+ * Represents a Series 2 Explicit RX packet used for 
+ * ZigBee devices (ZDO) and Zigbee Cluster Library (ZCL)
+ */
+class ZBExpRxResponse : public ZBRxResponse {
+public:
+	ZBExpRxResponse();
+	uint8_t getSrcEndpoint();
+	uint8_t getDestEndpoint();
+	uint16_t getClusterId();
+	uint16_t getProfileId();
+	uint8_t getRxOptions();
+	uint8_t *getRFData();
+	uint8_t getRFDataLength();
 };
 
 #endif
@@ -882,6 +903,49 @@ protected:
 private:
 	XBeeAddress64 _addr64;
 	uint16_t _addr16;
+	uint8_t _broadcastRadius;
+	uint8_t _option;
+};
+/**
+ * Represents a Explicit Addressing ZigBee Command Frame
+ */
+class ZBExpCommand : public PayloadRequest {
+public:
+	ZBExpCommand();
+	ZBExpCommand(XBeeAddress64 &addr64, uint16_t addr16, uint8_t srcEndpoint, uint8_t destEndpoint, 
+		uint16_t clusterId, uint16_t profileId, uint8_t broadcastRadius, uint8_t option, uint8_t *payload, 
+		uint8_t payloadLength, uint8_t frameId);
+	/**
+	 * Creates a default instance of this class.  At a minimum you must specify
+	 * a payload, payload length and a destination address before sending this request.
+	 */
+	XBeeAddress64& getAddress64();
+	uint16_t getAddress16();
+	uint8_t getSrcEndpoint();
+	uint8_t getDestEndpoint();
+	uint16_t getClusterId();
+	uint16_t getProfileId();
+	uint8_t getBroadcastRadius();
+	uint8_t getOption();
+	void setAddress64(XBeeAddress64& addr64);
+	void setAddress16(uint16_t addr16);
+	void setSrcEndpoint(uint8_t srcEndpoint);
+	void setDestEndpoint(uint8_t destEndpoint);
+	void setclusterId(uint16_t clusterId);
+	void setProfileId(uint16_t profileId);
+	void setBroadcastRadius(uint8_t broadcastRadius);
+	void setOption(uint8_t option);
+protected:
+	// declare virtual functions
+	uint8_t getFrameData(uint8_t pos);
+	uint8_t getFrameDataLength();
+private:
+	XBeeAddress64 _addr64;
+	uint16_t _addr16;
+	uint8_t _srcEndpoint;
+	uint8_t _destEndpoint;
+	uint16_t _clusterId;
+	uint16_t _profileId;
 	uint8_t _broadcastRadius;
 	uint8_t _option;
 };

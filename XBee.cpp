@@ -127,6 +127,11 @@ uint8_t ZBTxStatusResponse::getDiscoveryStatus() {
 bool ZBTxStatusResponse::isSuccess() {
 	return getDeliveryStatus() == SUCCESS;
 }
+//---------------------------------------------------------------------------------------
+uint8_t ZBTxStatusResponse::getFrameId() {
+	return getFrameData()[0];
+}
+//---------------------------------------------------------------------------------------
 
 void XBeeResponse::getZBTxStatusResponse(XBeeResponse &zbXBeeResponse) {
 
@@ -263,6 +268,51 @@ void XBeeResponse::getZBRxIoSampleResponse(XBeeResponse &response) {
 	zb->getRemoteAddress64().setMsb((uint32_t(getFrameData()[0]) << 24) + (uint32_t(getFrameData()[1]) << 16) + (uint16_t(getFrameData()[2]) << 8) + getFrameData()[3]);
 	zb->getRemoteAddress64().setLsb((uint32_t(getFrameData()[4]) << 24) + (uint32_t(getFrameData()[5]) << 16) + (uint16_t(getFrameData()[6]) << 8) + (getFrameData()[7]));
 }
+
+/*
+	ZigBee ZDO and ZCL additions  This uses the Frame Id 91 specifically for ZigBee devices
+*/
+//---------------------------------------------------------------------------------------
+ZBExpRxResponse::ZBExpRxResponse() : ZBRxResponse() {
+}
+uint8_t ZBExpRxResponse::getSrcEndpoint(){
+	return getFrameData()[10];
+}
+uint8_t ZBExpRxResponse::getDestEndpoint(){
+	return getFrameData()[11];
+}
+uint16_t ZBExpRxResponse::getClusterId(){
+	return (getFrameData()[12] << 8) + (getFrameData()[13] & 0xff);
+}
+uint16_t ZBExpRxResponse::getProfileId(){
+	return (getFrameData()[14] << 8) + (getFrameData()[15] & 0xff);
+}
+// the RxOptions are in a very different place in the Explicit Receive message
+uint8_t ZBExpRxResponse::getRxOptions(){
+	return getFrameData()[16];
+}
+// This returns a pointer and length to the beginning of the Explicit Rx RF data that
+// some Zigbee ZDO and ZCL messages have.  See the XBee documentation under
+// Explicit Receive message Frame Id 91
+uint8_t *ZBExpRxResponse::getRFData(){
+	return &getFrameData()[17];
+}
+uint8_t ZBExpRxResponse::getRFDataLength(){
+	// 10 bytes of normal XBee data and 7 bytes specific to the Explicit Receive
+	return getFrameDataLength() - 17;
+}
+
+void XBeeResponse::getZBExpRxResponse(XBeeResponse &response) {
+	ZBExpRxResponse* zb = static_cast<ZBExpRxResponse*>(&response);
+
+	// pass pointer array to subclass
+	zb->setFrameData(getFrameData());
+	setCommon(response);
+
+	zb->getRemoteAddress64().setMsb((uint32_t(getFrameData()[0]) << 24) + (uint32_t(getFrameData()[1]) << 16) + (uint16_t(getFrameData()[2]) << 8) + getFrameData()[3]);
+	zb->getRemoteAddress64().setLsb((uint32_t(getFrameData()[4]) << 24) + (uint32_t(getFrameData()[5]) << 16) + (uint16_t(getFrameData()[6]) << 8) + (getFrameData()[7]));
+}
+//---------------------------------------------------------------------------------------
 
 #endif
 
@@ -947,6 +997,8 @@ void XBee::readPacket() {
 					// reset state vars
 					_pos = 0;
 
+					_checksumTotal = 0;
+
 					return;
 				} else {
 					// add to packet array, starting with the fourth byte of the apiFrame
@@ -1139,6 +1191,143 @@ void ZBTxRequest::setOption(uint8_t option) {
 	_option = option;
 }
 
+//---------------------------------------------------------------------------------------
+ZBExpCommand::ZBExpCommand() : PayloadRequest(ZB_EXPLICIT_TX_REQUEST, DEFAULT_FRAME_ID, NULL, 0) {
+}
+
+ZBExpCommand::ZBExpCommand(XBeeAddress64 &addr64, uint16_t addr16, uint8_t srcEndpoint, uint8_t destEndpoint, 
+	uint16_t clusterId, uint16_t profileId, uint8_t broadcastRadius, uint8_t option, uint8_t *payload, 
+	uint8_t payloadLength, uint8_t frameId) : PayloadRequest(ZB_EXPLICIT_TX_REQUEST, frameId, payload, payloadLength){
+		
+	_addr64 = addr64;
+	_addr16 = addr16;
+	_srcEndpoint = srcEndpoint;
+	_destEndpoint = destEndpoint;
+	_clusterId = clusterId;
+	_profileId = profileId;
+	_broadcastRadius = broadcastRadius;
+	_option = option;
+}
+
+uint8_t ZBExpCommand::getFrameData(uint8_t pos) {
+	// this is called by send() and it
+	// steps through the various fields to construct the packet
+	// The first 8 are the 64 bit address
+	if (pos == 0) {
+		return (_addr64.getMsb() >> 24) & 0xff;
+	} else if (pos == 1) {
+		return (_addr64.getMsb() >> 16) & 0xff;
+	} else if (pos == 2) {
+		return (_addr64.getMsb() >> 8) & 0xff;
+	} else if (pos == 3) {
+		return _addr64.getMsb() & 0xff;
+	} else if (pos == 4) {
+		return (_addr64.getLsb() >> 24) & 0xff;
+	} else if (pos == 5) {
+		return  (_addr64.getLsb() >> 16) & 0xff;
+	} else if (pos == 6) {
+		return (_addr64.getLsb() >> 8) & 0xff;
+	} else if (pos == 7) {
+		return _addr64.getLsb() & 0xff;
+	// the next two are the 16 bit (short) address
+	} else if (pos == 8) {
+		return (_addr16 >> 8) & 0xff;
+	} else if (pos == 9) {
+		return _addr16 & 0xff;
+	// the 1 byte source endpoint
+	} else if (pos == 10) {
+		return _srcEndpoint;
+	// the 1 byte destination endpoint
+	} else if (pos == 11) {
+		return _destEndpoint;
+	// the 2 byte cluster ID
+	} else if (pos == 12) {
+		return (_clusterId >> 8) & 0xff;
+	} else if (pos ==13) {
+		return _clusterId & 0xff;
+	// the 2 byte profile ID
+	} else if (pos == 14) {
+		return (_profileId >> 8) & 0xff;
+	} else if (pos == 15) {
+		return _profileId & 0xff;
+	// the 8 bit broadcast radius
+	} else if (pos == 16) {
+		return _broadcastRadius;
+	// the 8 bit option
+	} else if (pos == 17) {
+		return _option;
+	// and finally the actual payload
+	} else {
+		return getPayload()[pos - ZB_EXP_COM_API_LENGTH];
+	}
+}
+
+uint8_t ZBExpCommand::getFrameDataLength() {
+	return ZB_EXP_COM_API_LENGTH + getPayloadLength();
+}
+
+XBeeAddress64& ZBExpCommand::getAddress64() {
+	return _addr64;
+}
+
+uint16_t ZBExpCommand::getAddress16() {
+	return _addr16;
+}
+
+uint8_t ZBExpCommand::getSrcEndpoint(){
+	return _srcEndpoint;
+}
+
+uint8_t ZBExpCommand::getDestEndpoint(){
+	return _destEndpoint;
+}
+
+uint16_t ZBExpCommand::getClusterId(){
+	return _clusterId;
+}
+
+uint16_t ZBExpCommand::getProfileId(){
+	return _profileId;
+}
+
+uint8_t ZBExpCommand::getBroadcastRadius() {
+	return _broadcastRadius;
+}
+
+uint8_t ZBExpCommand::getOption() {
+	return _option;
+}
+
+void ZBExpCommand::setAddress64(XBeeAddress64& addr64) {
+	_addr64 = addr64;
+}
+
+void ZBExpCommand::setAddress16(uint16_t addr16) {
+	_addr16 = addr16;
+}
+
+void ZBExpCommand::setSrcEndpoint(uint8_t srcEndpoint){
+	_srcEndpoint = srcEndpoint;
+}
+void ZBExpCommand::setDestEndpoint(uint8_t destEndpoint){
+	_destEndpoint = destEndpoint;
+}
+
+void ZBExpCommand::setclusterId(uint16_t clusterId){
+	_clusterId = clusterId;
+}
+void ZBExpCommand::setProfileId(uint16_t profileId){
+	_profileId = profileId;
+}
+
+void ZBExpCommand::setBroadcastRadius(uint8_t broadcastRadius) {
+	_broadcastRadius = broadcastRadius;
+}
+
+void ZBExpCommand::setOption(uint8_t option) {
+	_option = option;
+}
+//---------------------------------------------------------------------------------------
 #endif
 
 #ifdef SERIES_1
